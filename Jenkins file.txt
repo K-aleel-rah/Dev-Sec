@@ -1,0 +1,66 @@
+pipeline {
+    agent any
+
+    environment {
+        REACT_APP_NAME = 'my-react-app'
+        DOCKER_IMAGE_NAME = 'my-react-app-image'
+        AWS_ECR_REPO_URL = '123456789012.dkr.ecr.<region>.amazonaws.com/my-react-app-repo'
+        AWS_REGION = 'us-west-2'
+        STAGING_ENV = 'staging'
+        PRODUCTION_ENV = 'production'
+    }
+
+    stages {
+        stage('Test') {
+            steps {
+                sh 'npm run test'
+            }
+        }
+
+        stage('Install') {
+            steps {
+                sh 'npm install'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'npm run build'
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                sh '''
+                    docker build -t ${DOCKER_IMAGE_NAME} \
+                    --build-arg REACT_APP_NAME=${REACT_APP_NAME} \
+                    -f Dockerfile .
+                '''
+            }
+        }
+
+        stage('Push to AWS ECR') {
+            steps {
+                sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ECR_REPO_URL}"
+                sh "docker tag ${DOCKER_IMAGE_NAME}:latest ${AWS_ECR_REPO_URL}:latest"
+                sh "docker push ${AWS_ECR_REPO_URL}:latest"
+            }
+        }
+
+        stage('Environment Injection and Deployment') {
+            steps {
+                sh """
+                    docker run -d -e REACT_APP_ENV=${STAGING_ENV} \
+                    -p 80:80 ${AWS_ECR_REPO_URL}:latest
+                """
+                
+                sh """
+                    docker run -d -e REACT_APP_ENV=${PRODUCTION_ENV} \
+                    -p 8080:80 ${AWS_ECR_REPO_URL}:latest
+                """
+            }
+        }
+    }
+}
+
+
